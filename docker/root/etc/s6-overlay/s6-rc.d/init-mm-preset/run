@@ -15,6 +15,14 @@ fi
 # start. A leftover broken mount from a crash makes chown fail; AltMount
 # cleans that up itself, so ignore it.
 if [[ "${ALTMOUNT_PRESET:-}" == "media-manager" && -d /mnt ]]; then
+    # Cosmos creates a missing bind folder as root with mode 750 when the
+    # container has no user of its own, so neither AltMount (abc) nor Media
+    # Manager (the same uid) could enter it. Hand that folder to abc, but only
+    # when abc cannot enter it: an ordinary folder such as the host's /mnt is
+    # never touched.
+    if ! s6-setuidgid abc test -x /mnt; then
+        chown abc:abc /mnt && echo "**** gave /mnt (AltMount's folder) to the AltMount user ****"
+    fi
     if mkdir -p /mnt/altmount 2>/dev/null; then
         chown abc:abc /mnt/altmount 2>/dev/null || true
     fi
