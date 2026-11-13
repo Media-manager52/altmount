@@ -85,6 +85,11 @@ func (b *Backend) Mount(ctx context.Context, onReady func()) error {
 		AttrTimeout:     &attrTimeout,
 		NegativeTimeout: &entryTimeout,
 	}
+	if b.cfg.FuseConfig.ReadOnly {
+		// "ro" is passed to the kernel as a superblock flag (and to fusermount
+		// as -o ro when direct mounting is unavailable).
+		opts.MountOptions.Options = append(opts.MountOptions.Options, "ro")
+	}
 
 	// Mount with timeout
 	type mountResult struct {

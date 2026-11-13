@@ -291,7 +291,7 @@ func (m *manager) GetPool() (NntpClient, error) {
 		return nil, fmt.Errorf("NNTP connection pool not available - no providers configured")
 	}
 
-	return m.pool, nil
+	return &correctingClient{NntpClient: m.pool, corrections: corrections}, nil
 }
 
 // SetProviders creates/recreates the pool with new providers

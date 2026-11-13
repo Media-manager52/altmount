@@ -3,6 +3,8 @@
 package nzbfile
 
 import (
+	"bufio"
+	"bytes"
 	"compress/gzip"
 	"io"
 	"os"
@@ -32,24 +34,37 @@ func PlainFilename(path string) string {
 	return name
 }
 
-// Open opens an NZB file for reading, transparently decompressing .nzb.gz
-// files so callers always receive plain XML. The caller must Close the result.
+// Open opens an NZB file for reading, transparently decompressing gzip files
+// so callers always receive plain XML. Legacy failed imports can carry gzip
+// bytes after their staging filename has been changed to .nzb.
+// The caller must Close the result.
 func Open(path string) (io.ReadCloser, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 
-	if !IsGzipped(path) {
-		return f, nil
+	reader := bufio.NewReader(f)
+	header, err := reader.Peek(2)
+	if err != nil && err != io.EOF {
+		f.Close()
+		return nil, err
+	}
+	if !IsGzipped(path) && !bytes.Equal(header, []byte{0x1f, 0x8b}) {
+		return &plainReadCloser{Reader: reader, Closer: f}, nil
 	}
 
-	gr, err := gzip.NewReader(f)
+	gr, err := gzip.NewReader(reader)
 	if err != nil {
 		f.Close()
 		return nil, err
 	}
 	return &gzipReadCloser{file: f, reader: gr}, nil
+}
+
+type plainReadCloser struct {
+	io.Reader
+	io.Closer
 }
 
 // Compress reads the NZB at srcPath and writes a gzip-compressed copy to dstPath.

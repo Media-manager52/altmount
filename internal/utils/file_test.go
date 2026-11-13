@@ -42,6 +42,32 @@ func TestMoveFile_Normal(t *testing.T) {
 	}
 }
 
+func TestMoveFileMissingSourceAfterCopyIsSuccess(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "altmount-move-missing-source")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	src := filepath.Join(tmpDir, "missing.nzb")
+	dst := filepath.Join(tmpDir, "persistent.nzb")
+	if err := os.WriteFile(dst, []byte("complete persistent copy"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// This is the race that produced "failed to remove source file after
+	// successful copy": the copy is complete, but another worker won the
+	// source deletion. It must not fail the import.
+	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := removeSourceAfterCopy(src); err != nil {
+		t.Fatalf("absent source was not treated as success: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil || string(got) != "complete persistent copy" {
+		t.Fatalf("persistent copy=%q err=%v", got, err)
+	}
+}
+
 func TestIsCrossDeviceError(t *testing.T) {
 	tests := []struct {
 		err  error

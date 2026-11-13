@@ -113,6 +113,15 @@ func (rh *rarProcessor) AnalyzeRarContentFromNzb(ctx context.Context, rarFiles [
 		seenNames[file.Filename] = struct{}{}
 	}
 
+	// A first volume renamed apart from its .rNN siblings would stop old-style
+	// volume following after one volume; give it the run's name instead.
+	if !allFilesNoExt {
+		if unified, changed := unifyRenamedHeadVolume(rarFiles); changed {
+			rh.log.InfoContext(ctx, "Renamed RAR head volume to match its .rNN volumes", "volumes", len(rarFiles))
+			rarFiles = unified
+		}
+	}
+
 	// Get base filename from first file if all files have no extension
 	baseFilename := ""
 	if allFilesNoExt {

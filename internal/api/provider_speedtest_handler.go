@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
+	nntpool "github.com/kipsilabs/altmount/internal/pool"
 	"log/slog"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/kipsilabs/altmount/internal/config"
 	"github.com/javi11/nntppool/v5"
+	"github.com/kipsilabs/altmount/internal/config"
 )
 
 type ProviderSpeedTestResponse struct {
@@ -130,7 +131,7 @@ func (s *Server) runProviderSpeedTest(ctx context.Context, p *config.ProviderCon
 	// pool.Manager is required wiring; in tests it may return nil/err.
 	if s.poolManager != nil {
 		if cp, err := s.poolManager.GetPool(); err == nil && cp != nil {
-			if real, ok := cp.(*nntppool.Client); ok {
+			if real, ok := nntpool.Unwrap(cp).(*nntppool.Client); ok {
 				// ToNNTPProvider registers the provider under its stable ID.
 				providerName := p.NNTPPoolName()
 				// Try the production pool first. If the provider isn't

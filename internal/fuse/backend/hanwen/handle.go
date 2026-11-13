@@ -59,7 +59,8 @@ func NewHandle(
 
 // Read handles a FUSE read request using offset-native ReadAtContext.
 // No per-handle lock needed: ReadAtContext serializes internally via mvf.mu.
-func (h *Handle) Read(ctx context.Context, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+func (h *Handle) Read(ctx context.Context, dest []byte, off int64) (_ fuse.ReadResult, errno syscall.Errno) {
+	defer recoverErrno(h.logger, "read", h.path, &errno)
 	if h.closed.Load() {
 		return nil, syscall.EIO
 	}
@@ -109,7 +110,8 @@ func (h *Handle) Fsync(ctx context.Context, flags uint32) syscall.Errno {
 }
 
 // Release closes the file. It is idempotent.
-func (h *Handle) Release(ctx context.Context) syscall.Errno {
+func (h *Handle) Release(ctx context.Context) (errno syscall.Errno) {
+	defer recoverErrno(h.logger, "release", h.path, &errno)
 	if !h.closed.CompareAndSwap(false, true) {
 		return 0
 	}

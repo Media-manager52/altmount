@@ -67,7 +67,8 @@ func NewDir(
 func (d *Dir) OnAdd(ctx context.Context) {}
 
 // Getattr implements fs.NodeGetattrer.
-func (d *Dir) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+func (d *Dir) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) (errno syscall.Errno) {
+	defer recoverErrno(d.logger, "getattr", d.path, &errno)
 	if d.isRootDir {
 		out.Mode = 0755 | syscall.S_IFDIR
 		out.Uid = d.uid
@@ -95,7 +96,8 @@ func (d *Dir) Setattr(ctx context.Context, f fs.FileHandle, in *fuse.SetAttrIn, 
 }
 
 // Statfs implements fs.NodeStatfser.
-func (d *Dir) Statfs(ctx context.Context, out *fuse.StatfsOut) syscall.Errno {
+func (d *Dir) Statfs(ctx context.Context, out *fuse.StatfsOut) (errno syscall.Errno) {
+	defer recoverErrno(d.logger, "statfs", d.path, &errno)
 	const totalSize = 1024 * 1024 * 1024 * 1024 * 1024 // 1PB
 	const blockSize = 4096
 
@@ -144,7 +146,8 @@ func (d *Dir) Mkdir(ctx context.Context, name string, mode uint32, out *fuse.Ent
 }
 
 // Lookup implements fs.NodeLookuper.
-func (d *Dir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+func (d *Dir) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (_ *fs.Inode, errno syscall.Errno) {
+	defer recoverErrno(d.logger, "lookup", d.path, &errno)
 	fullPath := filepath.Join(d.path, name)
 
 	info, err := d.nzbfs.Stat(ctx, fullPath)
@@ -228,7 +231,8 @@ func (d *Dir) Rmdir(ctx context.Context, name string) syscall.Errno {
 }
 
 // Readdir implements fs.NodeReaddirer.
-func (d *Dir) Readdir(ctx context.Context) (fs.DirStream, syscall.Errno) {
+func (d *Dir) Readdir(ctx context.Context) (_ fs.DirStream, errno syscall.Errno) {
+	defer recoverErrno(d.logger, "readdir", d.path, &errno)
 	f, err := d.nzbfs.Open(ctx, d.path)
 	if err != nil {
 		d.logger.ErrorContext(ctx, "Readdir open failed", "path", d.path, "error", err)

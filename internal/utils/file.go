@@ -57,11 +57,20 @@ func MoveFile(src, dst string) error {
 		return fmt.Errorf("failed to close destination file: %w", err)
 	}
 
-	// Remove source file
-	if err := os.Remove(src); err != nil {
-		return fmt.Errorf("failed to remove source file after successful copy: %w", err)
+	if err := removeSourceAfterCopy(src); err != nil {
+		return err
 	}
 
+	return nil
+}
+
+// removeSourceAfterCopy treats an absent source as success: after the copy
+// and fsync, another worker may already have removed it. A real permission
+// or I/O failure is still returned.
+func removeSourceAfterCopy(src string) error {
+	if err := os.Remove(src); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove source file after successful copy: %w", err)
+	}
 	return nil
 }
 

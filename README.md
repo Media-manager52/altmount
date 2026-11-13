@@ -1,5 +1,14 @@
 # AltMount
 
+> **This is the Media Manager build of AltMount.** It is
+> [AltMount](https://github.com/kipsilabs/altmount) by Javier Blanco with fixes
+> that [Media Manager](https://github.com/Media-manager52/Media-manager) relies
+> on, and it is the AltMount that Media Manager installs alongside itself.
+> AltMount and these changes are MIT licensed (see [LICENSE](LICENSE)); the
+> original copyright stays with the AltMount authors. Report problems with this
+> build to Media Manager, not to the AltMount project. The changes on top of
+> AltMount are listed in [MEDIA-MANAGER.md](MEDIA-MANAGER.md).
+
 <p align="center">
   <img src="./docs/static/img/logo.png" alt="AltMount Logo" width="150" height="150" />
 </p>

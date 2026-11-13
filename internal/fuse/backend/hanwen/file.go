@@ -41,7 +41,8 @@ type File struct {
 }
 
 // Getattr implements fs.NodeGetattrer.
-func (f *File) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
+func (f *File) Getattr(ctx context.Context, fh fs.FileHandle, out *fuse.AttrOut) (errno syscall.Errno) {
+	defer recoverErrno(f.logger, "getattr", f.path, &errno)
 	info, err := f.nzbfs.Stat(ctx, f.path)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -61,7 +62,8 @@ func (f *File) Setattr(ctx context.Context, fh fs.FileHandle, in *fuse.SetAttrIn
 }
 
 // Open implements fs.NodeOpener.
-func (f *File) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
+func (f *File) Open(ctx context.Context, flags uint32) (_ fs.FileHandle, _ uint32, errno syscall.Errno) {
+	defer recoverErrno(f.logger, "open", f.path, &errno)
 	if flags&syscall.O_ACCMODE != syscall.O_RDONLY {
 		return nil, 0, syscall.EACCES
 	}
@@ -121,7 +123,8 @@ func (f *File) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, s
 }
 
 // Read implements fs.NodeReader.
-func (f *File) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
+func (f *File) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (_ fuse.ReadResult, errno syscall.Errno) {
+	defer recoverErrno(f.logger, "read", f.path, &errno)
 	handle := fh.(*Handle)
 	return handle.Read(ctx, dest, off)
 }

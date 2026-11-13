@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"os"
+	"runtime/debug"
 	"sync"
 	"syscall"
 
@@ -101,5 +102,18 @@ func fillAttr(info os.FileInfo, out *fuse.Attr, uid, gid uint32, noModTime bool)
 	} else {
 		out.Mode = 0644 | syscall.S_IFREG
 		out.Nlink = 1
+	}
+}
+
+// recoverErrno turns a panic inside one FUSE operation into EIO for that
+// request. go-fuse serves each request on its own goroutine without recovery,
+// so an unrecovered panic in any read path would kill the process and take the
+// mount away from every consumer (it did on 2026-10-06). Deferred by every
+// read-side operation; the panic and stack are logged so the bug stays visible.
+func recoverErrno(logger *slog.Logger, op, path string, errno *syscall.Errno) {
+	if recovered := recover(); recovered != nil {
+		logger.Error("FUSE operation panicked; failing only this request",
+			"op", op, "path", path, "panic", recovered, "stack", string(debug.Stack()))
+		*errno = syscall.EIO
 	}
 }

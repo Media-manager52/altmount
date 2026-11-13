@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 	"io"
+	"sync"
 )
 
 // aesDecryptReader wraps an io.ReadCloser with AES-CBC decryption
@@ -13,7 +14,6 @@ import (
 type aesDecryptReader struct {
 	ctx           context.Context
 	getReader     func(ctx context.Context, start, end int64) (io.ReadCloser, error)
-	source        io.ReadCloser
 	key           []byte
 	iv            []byte
 	origIV        []byte // Original IV for recalculation during seeks
@@ -25,7 +25,14 @@ type aesDecryptReader struct {
 	size          int64  // Total size of decrypted data (for output limiting)
 	encryptedSize int64  // Total size of encrypted data (for source reading)
 	requestEnd    int64  // Caller's desired end offset in decrypted space (-1 = unbounded)
-	closed        bool
+
+	// mu guards source and closed. Close may run on another goroutine while a
+	// Read is blocked (readFullContext force-closes on context timeout), so
+	// those two fields must never be read or written without it. The lock is
+	// never held across a blocking read, so Close can always interrupt one.
+	mu     sync.Mutex
+	source io.ReadCloser
+	closed bool
 }
 
 // newAesDecryptReader creates a new AES-CBC decrypt reader
@@ -71,14 +78,45 @@ func newAesDecryptReader(
 	}, nil
 }
 
+// currentSource returns the source and whether the reader is closed.
+func (r *aesDecryptReader) currentSource() (io.ReadCloser, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.source, r.closed
+}
+
+// installSource makes src the current source. If Close ran while src was
+// being created, src is closed instead and io.ErrClosedPipe is returned.
+func (r *aesDecryptReader) installSource(src io.ReadCloser) error {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		src.Close()
+		return io.ErrClosedPipe
+	}
+	r.source = src
+	r.mu.Unlock()
+	return nil
+}
+
+// detachSource removes and returns the current source.
+func (r *aesDecryptReader) detachSource() io.ReadCloser {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	src := r.source
+	r.source = nil
+	return src
+}
+
 // Read implements io.Reader
 func (r *aesDecryptReader) Read(p []byte) (int, error) {
-	if r.closed {
+	source, closed := r.currentSource()
+	if closed {
 		return 0, io.ErrClosedPipe
 	}
 
 	// Lazy initialization of source reader
-	if r.source == nil {
+	if source == nil {
 		sourceEnd := r.encryptedSize - 1
 		if r.requestEnd >= 0 {
 			encEnd := EncryptedSize(r.requestEnd+1) - 1
@@ -86,11 +124,14 @@ func (r *aesDecryptReader) Read(p []byte) (int, error) {
 				sourceEnd = encEnd
 			}
 		}
-		var err error
-		r.source, err = r.getReader(r.ctx, 0, sourceEnd)
+		created, err := r.getReader(r.ctx, 0, sourceEnd)
 		if err != nil {
 			return 0, fmt.Errorf("failed to initialize source reader: %w", err)
 		}
+		if err := r.installSource(created); err != nil {
+			return 0, err
+		}
+		source = created
 	}
 
 	totalRead := 0
@@ -132,7 +173,7 @@ func (r *aesDecryptReader) Read(p []byte) (int, error) {
 
 		// Read encrypted data
 		encBuf := make([]byte, readSize)
-		n, err := io.ReadFull(r.source, encBuf)
+		n, err := io.ReadFull(source, encBuf)
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return totalRead, err
 		}
@@ -181,7 +222,7 @@ func (r *aesDecryptReader) Read(p []byte) (int, error) {
 // Seek implements io.Seeker
 // For CBC mode, seeking requires recalculating the IV based on the previous ciphertext block
 func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
-	if r.closed {
+	if _, closed := r.currentSource(); closed {
 		return 0, io.ErrClosedPipe
 	}
 
@@ -211,9 +252,8 @@ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	// Close the current source if it exists
-	if r.source != nil {
-		r.source.Close()
-		r.source = nil
+	if old := r.detachSource(); old != nil {
+		old.Close()
 	}
 
 	// Seeking requires recreating the decrypter with the correct IV
@@ -267,7 +307,9 @@ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, fmt.Errorf("failed to recreate cipher: %w", err)
 	}
 
-	r.source = newSource
+	if err := r.installSource(newSource); err != nil {
+		return 0, err
+	}
 	r.iv = newIV
 	r.decrypter = cipher.NewCBCDecrypter(block, newIV)
 	r.offset = blockNum * int64(aes.BlockSize)
@@ -290,13 +332,18 @@ func (r *aesDecryptReader) Seek(offset int64, whence int) (int64, error) {
 
 // Close implements io.Closer
 func (r *aesDecryptReader) Close() error {
+	r.mu.Lock()
 	if r.closed {
+		r.mu.Unlock()
 		return nil
 	}
-
 	r.closed = true
-	if r.source != nil {
-		return r.source.Close()
+	source := r.source
+	r.source = nil
+	r.mu.Unlock()
+
+	if source != nil {
+		return source.Close()
 	}
 
 	return nil

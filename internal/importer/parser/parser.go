@@ -608,17 +608,11 @@ func (p *Parser) parseFile(ctx context.Context, meta map[string]string, nzbFilen
 		if metaFilename, ok := meta["file_name"]; ok && metaFilename != "" {
 			if fSize, ok := meta["file_size"]; ok {
 				// This is a usenet-drive nzb with one file
-				metaFilename = nzbtrim.TrimNzbExtension(nzbFilename)
-
-				if fe, ok := meta["file_extension"]; ok {
-					metaFilename = metaFilename + fe
-				} else {
-					fileExt := filepath.Ext(metaFilename)
-					if fileExt == "" {
-						if fe, ok := meta["file_extension"]; ok {
-							metaFilename = metaFilename + fe
-						}
-					}
+				// Rename from the upload only when metadata supplies the extension.
+				// Otherwise retain file_name, including its media/encryption suffix;
+				// an owner-generated upload basename may have no extension at all.
+				if fe := meta["file_extension"]; fe != "" {
+					metaFilename = nzbtrim.TrimNzbExtension(nzbFilename) + fe
 				}
 
 				fSizeInt, err := strconv.ParseInt(fSize, 10, 64)
@@ -918,6 +912,9 @@ func (p *Parser) fetchAllFirstSegments(ctx context.Context, files []nzbparser.Nz
 				fetchErr = nntppool.ErrArticleNotFound
 			} else {
 				result, fetchErr = p.fetchBodyWithRetry(ctx, cp, firstSegment.ID, articleDateOf(fileToFetch))
+				if fetchErr == nil {
+					result = p.correctWrongFirstArticle(ctx, cp, firstSegment, articleDateOf(fileToFetch), result)
+				}
 			}
 
 			if fetchErr != nil && stderrors.Is(fetchErr, nntppool.ErrArticleNotFound) {
@@ -1231,6 +1228,43 @@ func (p *Parser) fetchBodyWithRetry(ctx context.Context, cp pool.NntpClient, seg
 		}
 	}
 	return nil, fetchErr
+}
+
+// correctWrongFirstArticle replaces a first article that is really another post
+// with the genuine one from a provider that still has it, and remembers the
+// article so later reads, including playback, refuse the wrong post too. When no
+// provider has it the original result is returned and the import fails as it
+// would have.
+func (p *Parser) correctWrongFirstArticle(ctx context.Context, cp pool.NntpClient, segment nzbparser.NzbSegment, articleDate time.Time, result *nntppool.ArticleBody) *nntppool.ArticleBody {
+	want := int64(segment.Number)
+	if want <= 0 || result.YEnc.Part <= 0 || result.YEnc.Part == want {
+		return result
+	}
+	releaseConn, err := p.poolManager.AcquireImportConnection(ctx)
+	if err != nil {
+		return result
+	}
+	defer releaseConn()
+	fetchCtx, cancel := context.WithTimeout(nntppool.WithExpectedPart(ctx, want), 30*time.Second)
+	defer cancel()
+	genuine, err := cp.Fetch(fetchCtx, nntppool.Req{MessageID: segment.ID, ArticleDate: articleDate})
+	if err != nil {
+		p.log.WarnContext(ctx, "First article is another post on every provider that answered",
+			"segment", segment.ID, "want_part", want, "got_part", result.YEnc.Part, "error", err)
+		return result
+	}
+	p.log.InfoContext(ctx, "Recovered the genuine first article from another provider",
+		"segment", segment.ID, "want_part", want, "got_part", result.YEnc.Part)
+	if corrector, ok := cp.(pool.ArticleCorrector); ok {
+		corrector.CorrectArticle(segment.ID, want)
+	}
+	p.heads.put(segment.ID, articleHead{meta: genuine.YEnc, bytes: clipHead(genuine.Bytes)})
+	if p.segmentStore != nil {
+		if store := p.segmentStore(); store != nil {
+			_ = store.Put(segment.ID, genuine.Bytes)
+		}
+	}
+	return genuine
 }
 
 // probeHeaderFromLaterArticle recovers a file's yEnc header from articles

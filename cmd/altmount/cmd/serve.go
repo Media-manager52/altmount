@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -87,6 +88,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	repos := setupRepositories(ctx, db)
 	poolManager := pool.NewManager(ctx, repos.MainRepo)
+	if err := pool.LoadCorrectedArticles(filepath.Join(filepath.Dir(cfg.Database.Path), "corrected_articles.tsv")); err != nil {
+		logger.Error("failed to load corrected articles", "err", err)
+	}
 
 	metadataService, metadataReader := initializeMetadata(cfg)
 

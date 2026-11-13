@@ -304,3 +304,23 @@ func TestHandle_Release_Idempotent(t *testing.T) {
 
 	mockFile.AssertNumberOfCalls(t, "Close", 1)
 }
+
+// A bug that panics inside one read must fail only that request with EIO. On
+// 2026-10-06 an unrecovered nil dereference in a read path killed the process
+// and the mount went away for every consumer.
+func TestHandleReadPanicFailsOnlyThatRequest(t *testing.T) {
+	file := new(MockFile)
+	file.On("ReadAtContext", mock.Anything, mock.Anything, int64(0)).Run(func(mock.Arguments) {
+		var reader *struct{ closed bool }
+		reader.closed = true // nil dereference, like the crash
+	}).Return(0, nil)
+	file.On("ReadAtContext", mock.Anything, mock.Anything, int64(4096)).Return(4, nil)
+
+	h := NewHandle(file, slog.New(slog.NewTextHandler(io.Discard, nil)), "movies/x.mkv", nil, nil, nil)
+	_, errno := h.Read(context.Background(), make([]byte, 4096), 0)
+	assert.Equal(t, syscall.EIO, errno)
+
+	result, errno := h.Read(context.Background(), make([]byte, 4096), 4096)
+	require.Equal(t, syscall.Errno(0), errno)
+	assert.Equal(t, 4, result.Size())
+}

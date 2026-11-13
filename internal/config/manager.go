@@ -340,6 +340,12 @@ type FuseConfig struct {
 	// media servers re-scanning on unstable VFS mtimes. Note: tools like find -atime
 	// will not see meaningful access times on this mount.
 	NoModTime bool `yaml:"no_mod_time" mapstructure:"no_mod_time" json:"no_mod_time"`
+	// ReadOnly mounts the filesystem read-only at the kernel level, so every
+	// process and container that sees the mount (including bind mounts that
+	// follow a remount through mount propagation) gets EROFS on writes,
+	// deletes and renames. AltMount's own imports and repairs do not go
+	// through the mount, so they keep working.
+	ReadOnly bool `yaml:"read_only" mapstructure:"read_only" json:"read_only"`
 }
 
 // APIConfig represents REST API configuration

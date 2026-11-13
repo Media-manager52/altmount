@@ -334,7 +334,7 @@ func reconcileRepostedFirstVolume(groups [][]parser.ParsedFile) [][]parser.Parse
 	// "movie" → "movie.repost"). Unrelated bases (a continuation set plus a different
 	// single-part archive in the same NZB) are left as separate groups.
 	starterBase, ok := SetKey(groups[starterIdx][0].Filename)
-	if !ok || !baseExtends(starterBase, orphanBase) {
+	if !ok {
 		return groups
 	}
 
@@ -344,6 +344,16 @@ func reconcileRepostedFirstVolume(groups [][]parser.ParsedFile) [][]parser.Parse
 		_, nb, _ := rarVolumeNumber(orphans[b].Filename)
 		return na < nb
 	})
+
+	// The name test misses sets whose first volume got the clean release name
+	// while the continuations keep the group's scene name
+	// ("Show.S02.DANISH.DVDRip-GRP.part01.rar" + "grp-show.s02.dvdrip.r00..").
+	// Physical evidence decides those: a contiguous .r00.. run whose standard
+	// volume size the lone starter matches.
+	if !baseExtends(strings.ToLower(starterBase), strings.ToLower(orphanBase)) &&
+		!(orphanScheme == schemeRoll && contiguousFromFirst(orphans) && matchesVolumeSize(groups[starterIdx][0], orphans)) {
+		return groups
+	}
 
 	firstName, ok := orphanFirstVolumeName(orphans[0].Filename, orphanScheme)
 	if !ok {
@@ -555,4 +565,98 @@ func normalizeRarPartFilename(filename string, index int, allFilesNoExt bool, to
 
 	// No pattern matched, return original filename
 	return filename
+}
+
+var (
+	oldStyleVolume = regexp.MustCompile(`(?i)^(.+)\.r(\d{2,3})$`)
+	headVolume     = regexp.MustCompile(`(?i)^(.+?)(?:\.part0*1)?\.rar$`)
+)
+
+// unifyRenamedHeadVolume repairs a set whose first volume was renamed
+// separately from the rest, e.g. "Show.S01.DANiSH-GRP.part01.rar" next to
+// "grp-show.s01.r00" ... "grp-show.s01.r36". Old-style RAR archives find
+// their next volume by name (name.rar -> name.r00), so such a set stops after
+// the first volume and looks truncated although every volume is present.
+//
+// It only acts when the structure is unambiguous: exactly one head volume
+// (.rar or .part01.rar), and every other RAR volume belongs to one .rNN run
+// with a single base name, numbered contiguously from r00. The head is then
+// renamed to "<run base>.rar". Anything else is returned unchanged.
+func unifyRenamedHeadVolume(files []parser.ParsedFile) ([]parser.ParsedFile, bool) {
+	head := -1
+	runBase := ""
+	numbers := map[int]bool{}
+	width := 0
+	for i, file := range files {
+		if match := oldStyleVolume.FindStringSubmatch(file.Filename); match != nil {
+			if runBase == "" {
+				runBase, width = match[1], len(match[2])
+			}
+			number, err := strconv.Atoi(match[2])
+			if match[1] != runBase || len(match[2]) != width || err != nil || numbers[number] {
+				return files, false
+			}
+			numbers[number] = true
+			continue
+		}
+		if headVolume.MatchString(file.Filename) {
+			if head >= 0 {
+				return files, false
+			}
+			head = i
+			continue
+		}
+		return files, false // another kind of RAR volume: leave the set alone
+	}
+	if head < 0 || len(numbers) == 0 {
+		return files, false
+	}
+	for number := 0; number < len(numbers); number++ {
+		if !numbers[number] {
+			return files, false
+		}
+	}
+	unified := runBase + ".rar"
+	if files[head].Filename == unified {
+		return files, false
+	}
+	result := slices.Clone(files)
+	result[head].Filename = unified
+	return result, true
+}
+
+// contiguousFromFirst reports whether sorted roll-scheme continuations are
+// exactly .r00, .r01, ... with no gap or duplicate.
+func contiguousFromFirst(sorted []parser.ParsedFile) bool {
+	for i, f := range sorted {
+		_, n, ok := rarVolumeNumber(f.Filename)
+		if !ok || n != i+1 { // .r00 is ordinal 1
+			return false
+		}
+	}
+	return len(sorted) > 0
+}
+
+// matchesVolumeSize reports whether the starter is the size of a standard
+// volume of the set: every continuation except the last shares one size
+// (within 1%, which absorbs yEnc overhead differences), and so does the
+// starter. Needs at least two full continuation volumes as evidence.
+func matchesVolumeSize(starter parser.ParsedFile, sorted []parser.ParsedFile) bool {
+	if len(sorted) < 3 || starter.Size <= 0 {
+		return false
+	}
+	reference := sorted[0].Size
+	within := func(a, b int64) bool {
+		diff := a - b
+		if diff < 0 {
+			diff = -diff
+		}
+		return b > 0 && diff*100 <= b
+	}
+	for _, f := range sorted[:len(sorted)-1] {
+		if !within(f.Size, reference) {
+			return false
+		}
+	}
+	return within(starter.Size, reference)
 }

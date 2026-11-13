@@ -32,6 +32,7 @@ WORKDIR /app
 
 # Copy go module files first for better caching
 COPY go.mod go.sum ./
+COPY ./third_party ./third_party
 
 # Download dependencies with enhanced cache mount
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \

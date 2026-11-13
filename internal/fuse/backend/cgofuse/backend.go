@@ -172,6 +172,9 @@ func (b *Backend) mountOptions() []string {
 			opts = append(opts, "-o", "allow_other")
 		}
 	}
+	if b.cfg.FuseConfig.ReadOnly && runtime.GOOS != "windows" {
+		opts = append(opts, "-o", "ro")
+	}
 
 	return opts
 }
