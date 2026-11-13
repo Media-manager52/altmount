@@ -9,3 +9,13 @@ if [[ "${ALTMOUNT_PRESET:-}" == "media-manager" && ! -e /config/config.yaml ]]; 
     chown abc:abc /config /config/config.yaml
     echo "**** wrote Media Manager's AltMount settings to /config/config.yaml ****"
 fi
+
+# The install binds a host folder at /mnt that is often owned by root, and
+# AltMount runs as abc, so create its mount folder here (as root) on every
+# start. A leftover broken mount from a crash makes chown fail; AltMount
+# cleans that up itself, so ignore it.
+if [[ "${ALTMOUNT_PRESET:-}" == "media-manager" && -d /mnt ]]; then
+    if mkdir -p /mnt/altmount 2>/dev/null; then
+        chown abc:abc /mnt/altmount 2>/dev/null || true
+    fi
+fi
