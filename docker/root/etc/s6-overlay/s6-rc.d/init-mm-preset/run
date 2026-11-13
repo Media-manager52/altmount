@@ -10,6 +10,29 @@ if [[ "${ALTMOUNT_PRESET:-}" == "media-manager" && ! -e /config/config.yaml ]]; 
     echo "**** wrote Media Manager's AltMount settings to /config/config.yaml ****"
 fi
 
+# An AltMount that ran another build before (the normal AltMount image swapped
+# for this one) keeps its settings, database and files untouched. As a
+# safety net, the first start of this build copies the database and the
+# settings to /config/before-media-manager-<time>, while AltMount is not yet
+# running, so the copy is consistent. It happens once (marker file).
+marker=/config/.media-manager-build
+if [[ -d /config && ! -e "${marker}" ]]; then
+    db=$(awk '/^database:/{in_db=1; next} /^[^[:space:]#]/{in_db=0} in_db && $1=="path:"{print $2; exit}' /config/config.yaml 2>/dev/null | tr -d "\"'")
+    db=${db:-/config/altmount.db}
+    if [[ -f "${db}" ]]; then
+        copy="/config/before-media-manager-$(date -u +%Y%m%d-%H%M%S)"
+        mkdir -p "${copy}"
+        for file in /config/config.yaml "${db}" "${db}-wal" "${db}-shm"; do
+            if [[ -f "${file}" ]]; then
+                cp -p "${file}" "${copy}/" || { echo "**** could not copy ${file}; AltMount starts anyway ****"; }
+            fi
+        done
+        chown -R abc:abc "${copy}" 2>/dev/null || true
+        echo "**** copied AltMount's database and settings to ${copy} ****"
+    fi
+    touch "${marker}" && chown abc:abc "${marker}" 2>/dev/null || true
+fi
+
 # The install binds a host folder at /mnt that is often owned by root, and
 # AltMount runs as abc, so create its mount folder here (as root) on every
 # start. A leftover broken mount from a crash makes chown fail; AltMount

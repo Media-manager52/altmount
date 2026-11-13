@@ -28,6 +28,15 @@ own settings page.
   (no login, FUSE mount at `/mnt/altmount`, SABnzbd API on). An existing
   config is never changed. Media Manager runs this AltMount only on its
   private Docker network.
+- **Switching from the normal AltMount:** the same settings, database and
+  files work with this image (no database changes on top of upstream), so an
+  existing AltMount can swap its image for this one. On the first start of
+  this image, before AltMount runs, the database and `config.yaml` are copied
+  to `/config/before-media-manager-<time>/` (once; `/config/.media-manager-build`
+  marks it). Swapping back to the normal image needs nothing else.
+- **Version:** images built from an `mm-v<upstream version>-mm.<n>` tag report
+  `v<upstream version>-mm.<n>` (for example `v0.4.0-mm.3`) as AltMount's version,
+  which Media Manager reads.
 - **Image build:** the image is built with `docker/Dockerfile.ci` after a
   frontend build (as upstream does), and carries the preset in `/defaults`.
 - **CI:** the upstream image and release workflows (which publish to the

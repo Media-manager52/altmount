@@ -52,14 +52,21 @@ jobs:
         id: tags
         run: |
           tags="${IMAGE}:sha-${GITHUB_SHA}"
-          if [ "${GITHUB_REF_TYPE}" = tag ]; then tags="${tags},${IMAGE}:${GITHUB_REF_NAME},${IMAGE}:mm-stable"; fi
+          version="mm-${GITHUB_SHA}"
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            tags="${tags},${IMAGE}:${GITHUB_REF_NAME},${IMAGE}:mm-stable"
+            # mm-v0.4.0-mm.3 -> v0.4.0-mm.3: the upstream release it is built
+            # on plus Media Manager's build number; Media Manager reads it.
+            version="${GITHUB_REF_NAME#mm-}"
+          fi
           echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/Dockerfile.ci
           build-args: |
-            VERSION=mm-${{ github.sha }}
+            VERSION=${{ steps.tags.outputs.version }}
             COMMIT=${{ github.sha }}
           platforms: linux/amd64
           push: true
