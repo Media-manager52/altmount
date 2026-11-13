@@ -28,6 +28,8 @@ fuse:
   enabled: true
   mount_path: /mnt/altmount
   allow_other: true
+  # Media Manager only reads files; deletes go through the API.
+  read_only: true
 sabnzbd:
   enabled: true
   complete_dir: /
