@@ -120,6 +120,7 @@ RUN chmod +x /app/altmount
 
 # Copy s6-overlay service configuration
 COPY docker/root/ /
+COPY docker/defaults/ /defaults/
 
 # Set environment variables
 ENV PORT=8080

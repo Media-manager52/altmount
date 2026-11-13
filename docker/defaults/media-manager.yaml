@@ -1,0 +1,33 @@
+# AltMount settings for the AltMount that Media Manager installs alongside
+# itself. Written to /config/config.yaml on the first start only (when
+# ALTMOUNT_PRESET=media-manager and no config exists); AltMount fills in every
+# other setting with its defaults. Usenet servers are added from Media
+# Manager (Indstillinger -> Usenet-servere).
+#
+# AltMount is reachable only on Media Manager's private Docker network, so it
+# runs without a login, and Media Manager connects as its admin.
+auth:
+  login_required: false
+# Only Media Manager calls the API, server to server. AltMount refuses to
+# start with credentialed CORS for any origin, so name a local one.
+api:
+  allowed_origins:
+    - http://localhost:8080
+database:
+  path: /config/altmount.db
+metadata:
+  root_path: /config/metadata
+log:
+  file: /config/altmount.log
+  level: info
+# AltMount's own FUSE mount; the install binds the folder above it (/mnt)
+# into Media Manager too, with shared propagation.
+mount_type: fuse
+mount_path: /mnt/altmount
+fuse:
+  enabled: true
+  mount_path: /mnt/altmount
+  allow_other: true
+sabnzbd:
+  enabled: true
+  complete_dir: /

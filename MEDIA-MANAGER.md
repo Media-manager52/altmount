@@ -23,6 +23,13 @@ own settings page.
 - **Files:** moving a source that is already gone counts as success.
 - **Build:** `third_party/nntppool` is vendored (MIT, by Javier Blanco) with
   the pool changes above.
+- **Media Manager preset:** with `ALTMOUNT_PRESET=media-manager`, the first
+  start writes `docker/defaults/media-manager.yaml` to `/config/config.yaml`
+  (no login, FUSE mount at `/mnt/altmount`, SABnzbd API on). An existing
+  config is never changed. Media Manager runs this AltMount only on its
+  private Docker network.
+- **Image build:** the image is built with `docker/Dockerfile.ci` after a
+  frontend build (as upstream does), and carries the preset in `/defaults`.
 - **CI:** the upstream image and release workflows (which publish to the
   AltMount project's own registries) are replaced by
   `.github/workflows/media-manager-image.yml`.

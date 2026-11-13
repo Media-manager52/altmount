@@ -1,0 +1,11 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+
+# Media Manager's bundled AltMount: on the very first start, write the
+# settings Media Manager expects. An existing config is never touched.
+if [[ "${ALTMOUNT_PRESET:-}" == "media-manager" && ! -e /config/config.yaml ]]; then
+    mkdir -p /config
+    cp /defaults/media-manager.yaml /config/config.yaml
+    chown abc:abc /config /config/config.yaml
+    echo "**** wrote Media Manager's AltMount settings to /config/config.yaml ****"
+fi
