@@ -684,6 +684,12 @@ func (lsw *LibrarySyncWorker) SyncLibrary(ctx context.Context, dryRun bool) *Dry
 	// discovery pass. Resolve their mount-relative prefixes once up front.
 	excludedPrefixes := buildExcludedCategoryPrefixes(cfg)
 
+	// With cleanup on, the delete pass below drops every record whose file is
+	// not linked from the official library (import-dir-only links included).
+	// Registering such files here would make each sync add and delete the same
+	// records forever, re-reading their metadata every run. Skip them instead.
+	skipNotInLibrary := shouldCleanup
+
 	// Create a worker pool for parallel metadata reading
 	p := pool.New().WithMaxGoroutines(concurrency)
 
@@ -705,6 +711,15 @@ func (lsw *LibrarySyncWorker) SyncLibrary(ctx context.Context, dryRun bool) *Dry
 		}
 
 		p.Go(func() {
+			defer func() {
+				if lsw.progress != nil {
+					current := lsw.progress.ProcessedFiles.Add(1)
+					if current%1000 == 0 {
+						slog.InfoContext(ctx, "Processing metadata progress", "count", current)
+					}
+				}
+			}()
+
 			// Check if needs to be added or repaired
 			var existingRecord *database.AutomaticHealthCheckRecord
 			if it, exists := dbPathSet[path]; exists {
@@ -763,6 +778,12 @@ func (lsw *LibrarySyncWorker) SyncLibrary(ctx context.Context, dryRun bool) *Dry
 				}
 			}
 
+			// The delete pass keeps only repair-triggered records outside the library.
+			if skipNotInLibrary && !filesInLibrary[path] &&
+				(existingRecord == nil || existingRecord.Status != database.HealthStatusRepairTriggered) {
+				return
+			}
+
 			// Determine if we need to update/add the record
 			needsProcess := existingRecord == nil
 			if !needsProcess {
@@ -791,13 +812,6 @@ func (lsw *LibrarySyncWorker) SyncLibrary(ctx context.Context, dryRun bool) *Dry
 
 				if record != nil {
 					filesToAddChan <- *record
-				}
-			}
-
-			if lsw.progress != nil {
-				current := lsw.progress.ProcessedFiles.Add(1)
-				if current%1000 == 0 {
-					slog.InfoContext(ctx, "Processing metadata progress", "count", current)
 				}
 			}
 		})
